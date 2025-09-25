@@ -12,6 +12,7 @@ abstract class ProductsRepository {
 }
 */
 
+/*
 // lib/services/products_repository.dart
 import '../models/product.dart';
 
@@ -30,3 +31,4 @@ abstract class ProductsRepository {
 
   Stream<Product> watchProduct(String id, {String? currentUserId});
 }
+*/

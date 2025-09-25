@@ -39,12 +39,6 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  // ❌ Remove didChangeDependencies that calls loadInitial()
-  // @override
-  // void didChangeDependencies() {
-  //   super.didChangeDependencies();
-  // }
-
   @override
   void dispose() {
     _searchCtrl.dispose();
