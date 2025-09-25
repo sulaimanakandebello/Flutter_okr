@@ -87,7 +87,7 @@ class FirebaseProductsRepository implements ProductsRepository {
   }
 
   @override
-  Future<String> createProduct(Product product) async {
+  Future<String> createListing(Product product) async {
     final ref = await _col.add(product.toMap());
     return ref.id;
   }

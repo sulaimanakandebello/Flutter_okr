@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
-import '../models/product.dart';
-import 'make_offer_page.dart';
-import 'checkout_page.dart';
+import 'package:flutter_okr/models/product.dart';
+import 'package:flutter_okr/pages/make_offer_page.dart';
+import 'package:flutter_okr/pages/checkout_page.dart';
+import 'package:flutter_okr/models/seller.dart'; // <-- add this
 
 class ProductPage extends StatefulWidget {
   const ProductPage({
@@ -24,13 +25,12 @@ class _ProductPageState extends State<ProductPage> {
   int _page = 0;
 
   late int _likes;
-  late bool _liked;
+  bool _liked = false;
 
   @override
   void initState() {
     super.initState();
     _likes = widget.product.likes;
-    _liked = widget.product.likedByMe;
   }
 
   @override
@@ -52,6 +52,7 @@ class _ProductPageState extends State<ProductPage> {
     final t = Theme.of(context).textTheme;
     final cs = Theme.of(context).colorScheme;
 
+    // Fallback demo lists if none are provided in the constructor
     final others = widget.sellersOtherItems ?? _demoProductsForSeller(p);
     final similar = widget.similarItems ?? _demoSimilarProducts(p);
 
@@ -64,7 +65,7 @@ class _ProductPageState extends State<ProductPage> {
       ),
       body: CustomScrollView(
         slivers: [
-          // ----- image carousel -----
+          // ---------- Image carousel ----------
           SliverToBoxAdapter(
             child: AspectRatio(
               aspectRatio: 1,
@@ -86,6 +87,7 @@ class _ProductPageState extends State<ProductPage> {
                             );
                     },
                   ),
+                  // dots
                   Positioned(
                     bottom: 14,
                     left: 0,
@@ -109,43 +111,39 @@ class _ProductPageState extends State<ProductPage> {
                       ),
                     ),
                   ),
+                  // likes bubble
                   Positioned(
                     right: 12,
                     bottom: 12,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(999),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(.15),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
+                    child: Material(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(999),
+                      elevation: 4,
                       child: InkWell(
+                        borderRadius: BorderRadius.circular(999),
                         onTap: _toggleLike,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              _liked ? Icons.favorite : Icons.favorite_border,
-                              color: _liked ? Colors.red : Colors.black,
-                              size: 20,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              '$_likes',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                _liked ? Icons.favorite : Icons.favorite_border,
+                                color: _liked ? Colors.red : Colors.black,
+                                size: 20,
                               ),
-                            ),
-                          ],
+                              const SizedBox(width: 6),
+                              Text(
+                                '$_likes',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -155,13 +153,14 @@ class _ProductPageState extends State<ProductPage> {
             ),
           ),
 
-          // ----- seller row -----
+          // ---------- Seller row ----------
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
               child: Row(
                 children: [
-                  _SellerAvatar(seller: p.seller),
+                  _SellerAvatar(
+                      username: p.seller.username, url: p.seller.avatarUrl),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
@@ -200,17 +199,14 @@ class _ProductPageState extends State<ProductPage> {
                     onPressed: () {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                          content: Text('Open chat with seller (mock)'),
-                        ),
+                            content: Text('Open chat with seller (mock)')),
                       );
                     },
                     style: OutlinedButton.styleFrom(
                       shape: const StadiumBorder(),
                       side: BorderSide(color: cs.outline),
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 10,
-                      ),
+                          horizontal: 16, vertical: 10),
                     ),
                     child: const Text('Ask seller'),
                   ),
@@ -230,9 +226,7 @@ class _ProductPageState extends State<ProductPage> {
                       .map(
                         (b) => Container(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
-                          ),
+                              horizontal: 12, vertical: 8),
                           decoration: BoxDecoration(
                             color: cs.primary.withOpacity(.12),
                             borderRadius: BorderRadius.circular(999),
@@ -240,16 +234,12 @@ class _ProductPageState extends State<ProductPage> {
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(
-                                Icons.local_shipping_outlined,
-                                size: 18,
-                                color: cs.primary,
-                              ),
+                              Icon(Icons.local_shipping_outlined,
+                                  size: 18, color: cs.primary),
                               const SizedBox(width: 6),
-                              Text(
-                                b,
-                                style: TextStyle(color: cs.primary, height: 1),
-                              ),
+                              Text(b,
+                                  style:
+                                      TextStyle(color: cs.primary, height: 1)),
                             ],
                           ),
                         ),
@@ -261,31 +251,26 @@ class _ProductPageState extends State<ProductPage> {
 
           const SliverToBoxAdapter(child: Divider(height: 1)),
 
-          // ----- title / meta / price -----
+          // ---------- Title / price / meta ----------
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    p.title,
-                    style: t.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-                  ),
+                  Text(p.title,
+                      style:
+                          t.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
                   const SizedBox(height: 6),
                   Wrap(
                     crossAxisAlignment: WrapCrossAlignment.center,
                     spacing: 6,
                     children: [
-                      Text(
-                        p.size,
-                        style: const TextStyle(color: Colors.black54),
-                      ),
+                      Text(p.size,
+                          style: const TextStyle(color: Colors.black54)),
                       const Text('·', style: TextStyle(color: Colors.black45)),
-                      Text(
-                        p.condition,
-                        style: const TextStyle(color: Colors.black54),
-                      ),
+                      Text(p.condition,
+                          style: const TextStyle(color: Colors.black54)),
                       const Text('·', style: TextStyle(color: Colors.black45)),
                       InkWell(
                         onTap: () {},
@@ -319,11 +304,8 @@ class _ProductPageState extends State<ProductPage> {
                         ),
                       ),
                       const SizedBox(width: 4),
-                      Icon(
-                        Icons.verified_user,
-                        size: 18,
-                        color: Colors.teal[700],
-                      ),
+                      Icon(Icons.verified_user,
+                          size: 18, color: Colors.teal[700]),
                     ],
                   ),
                 ],
@@ -333,30 +315,27 @@ class _ProductPageState extends State<ProductPage> {
 
           const SliverToBoxAdapter(child: Divider(height: 1)),
 
-          // ----- description -----
+          // ---------- Description ----------
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Description',
-                    style: t.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-                  ),
+                  Text('Description',
+                      style:
+                          t.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
                   const SizedBox(height: 8),
                   Text(p.description),
                   const SizedBox(height: 8),
                   TextButton(
-                    onPressed: () {},
-                    child: const Text('Tap to translate'),
-                  ),
+                      onPressed: () {}, child: const Text('Tap to translate')),
                 ],
               ),
             ),
           ),
 
-          // ----- facts table -----
+          // ---------- Facts ----------
           SliverToBoxAdapter(
             child: _FactsTable(
               rows: [
@@ -370,7 +349,7 @@ class _ProductPageState extends State<ProductPage> {
             ),
           ),
 
-          // ----- buyer protection -----
+          // ---------- Buyer protection ----------
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
@@ -408,7 +387,7 @@ class _ProductPageState extends State<ProductPage> {
             ),
           ),
 
-          // ----- postage -----
+          // ---------- Postage ----------
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 16, 12, 12),
@@ -421,15 +400,11 @@ class _ProductPageState extends State<ProductPage> {
                         child: Text(
                           'Postage',
                           style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 16,
-                          ),
+                              fontWeight: FontWeight.w600, fontSize: 16),
                         ),
                       ),
-                      Text(
-                        'From €2.79',
-                        style: TextStyle(color: Colors.black54),
-                      ),
+                      Text('From €2.79',
+                          style: TextStyle(color: Colors.black54)),
                     ],
                   ),
                   SizedBox(height: 8),
@@ -442,7 +417,7 @@ class _ProductPageState extends State<ProductPage> {
             ),
           ),
 
-          // ----- tabs -----
+          // ---------- Tabs (member’s items / similar) ----------
           SliverToBoxAdapter(
             child: DefaultTabController(
               length: 2,
@@ -475,7 +450,7 @@ class _ProductPageState extends State<ProductPage> {
         ],
       ),
 
-      // ----- bottom actions -----
+      // ---------- Bottom actions ----------
       bottomNavigationBar: SafeArea(
         top: false,
         child: Container(
@@ -510,8 +485,7 @@ class _ProductPageState extends State<ProductPage> {
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+                        borderRadius: BorderRadius.circular(12)),
                   ),
                   child: const Text('Make an offer'),
                 ),
@@ -537,33 +511,28 @@ class _ProductPageState extends State<ProductPage> {
   }
 }
 
+/* ========================= helper widgets & fns ========================= */
+
 class _SellerAvatar extends StatelessWidget {
-  const _SellerAvatar({required this.seller});
-  final Seller seller;
+  const _SellerAvatar({required this.username, this.url});
+  final String username;
+  final String? url;
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final url = seller.avatarUrl ?? '';
+    final hasUrl = url != null && url!.trim().isNotEmpty;
     return CircleAvatar(
       radius: 22,
-      backgroundColor: cs.primaryContainer,
-      backgroundImage: url.isNotEmpty ? NetworkImage(url) : null,
-      child: url.isEmpty
-          ? Text(
-              (seller.username.isNotEmpty ? seller.username[0] : '?')
-                  .toUpperCase(),
-              style: TextStyle(
-                color: cs.onPrimaryContainer,
-                fontWeight: FontWeight.bold,
-              ),
-            )
-          : null,
+      backgroundImage: hasUrl ? NetworkImage(url!) : null,
+      child: hasUrl
+          ? null
+          : Text(
+              username.isNotEmpty ? username[0].toUpperCase() : '?',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
     );
   }
 }
-
-/* ---------------- sub-widgets & helpers ---------------- */
 
 class _FactsTable extends StatelessWidget {
   const _FactsTable({required this.rows});
@@ -580,9 +549,7 @@ class _FactsTable extends StatelessWidget {
             title: Text(
               r.label,
               style: const TextStyle(
-                color: Colors.black54,
-                fontWeight: FontWeight.w500,
-              ),
+                  color: Colors.black54, fontWeight: FontWeight.w500),
             ),
             trailing: Text(r.value),
           ),
@@ -605,7 +572,6 @@ class _MemberItemsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final t = Theme.of(context).textTheme;
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
       child: Column(
@@ -616,18 +582,12 @@ class _MemberItemsTab extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Shop bundles',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
+                    Text('Shop bundles',
+                        style: TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.w700)),
                     SizedBox(height: 2),
-                    Text(
-                      'Get up to 10% off',
-                      style: TextStyle(color: Colors.black54),
-                    ),
+                    Text('Get up to 10% off',
+                        style: TextStyle(color: Colors.black54)),
                   ],
                 ),
               ),
@@ -697,9 +657,8 @@ class _GridProductCard extends StatelessWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: InkWell(
         onTap: () {
-          Navigator.of(
-            context,
-          ).push(MaterialPageRoute(builder: (_) => ProductPage(product: p)));
+          Navigator.of(context)
+              .push(MaterialPageRoute(builder: (_) => ProductPage(product: p)));
         },
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -714,19 +673,15 @@ class _GridProductCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    p.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: t.bodyMedium,
-                  ),
+                  Text(p.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: t.bodyMedium),
                   const SizedBox(height: 2),
                   Text(
                     '€${p.price.toStringAsFixed(2)}',
                     style: t.bodyMedium?.copyWith(
-                      color: Colors.black87,
-                      fontWeight: FontWeight.w600,
-                    ),
+                        color: Colors.black87, fontWeight: FontWeight.w600),
                   ),
                 ],
               ),
@@ -746,13 +701,46 @@ String _timeAgo(DateTime dt) {
   return d == 1 ? '1 day ago' : '$d days ago';
 }
 
+// simple demo lists for the two tabs (replace later with real data)
 List<Product> _demoProductsForSeller(Product base) => List.generate(6, (i) {
-  return base.copyWith().copyWith(
-    // reuse base values, vary some
-    likes: 3 + i,
-  );
-});
+      return Product(
+        id: 'seller-${i + 1}',
+        title: '${base.brand} item ${i + 1}',
+        brand: base.brand,
+        price: (base.price * (0.8 + i * 0.07)),
+        images: base.images,
+        condition: 'Good',
+        size: base.size,
+        colour: base.colour,
+        categoryPath: base.categoryPath,
+        description:
+            'Another ${base.brand} piece from ${base.seller.username}.',
+        seller: base.seller,
+        badges: const [],
+        likes: 3 + i,
+        uploadedAt: DateTime.now().subtract(Duration(hours: 2 * (i + 1))),
+        sellerId: '',
+        sellerUsername: '',
+      );
+    });
 
 List<Product> _demoSimilarProducts(Product base) => List.generate(6, (i) {
-  return base.copyWith(likes: 1 + i);
-});
+      return Product(
+        id: 'similar-${i + 1}',
+        title: 'Similar ${base.title} ${i + 1}',
+        brand: base.brand,
+        price: (base.price * (0.75 + i * 0.06)),
+        images: base.images,
+        condition: 'Very good',
+        size: base.size,
+        colour: base.colour,
+        categoryPath: base.categoryPath,
+        description: 'Similar item in ${base.categoryPath}.',
+        seller: Seller(username: 'otherUser', rating: 5, ratingCount: 200),
+        badges: const [],
+        likes: 1 + i,
+        uploadedAt: DateTime.now().subtract(Duration(hours: 3 * (i + 1))),
+        sellerId: '',
+        sellerUsername: '',
+      );
+    });
