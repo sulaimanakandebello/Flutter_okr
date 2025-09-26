@@ -1,3 +1,4 @@
+/*
 // lib/services/auth_service.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -86,5 +87,55 @@ class AuthService {
         'createdAt': FieldValue.serverTimestamp(),
       });
     }
+  }
+}
+*/
+
+// lib/services/auth_service.dart
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+
+class AuthService {
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  Stream<User?> authStateChanges() => _auth.authStateChanges();
+
+  Future<UserCredential> signUpWithEmail({
+    required String email,
+    required String password,
+    String? displayName,
+  }) async {
+    final cred = await _auth.createUserWithEmailAndPassword(
+      email: email,
+      password: password,
+    );
+    if (displayName != null && displayName.isNotEmpty) {
+      await cred.user?.updateDisplayName(displayName);
+    }
+    return cred;
+  }
+
+  Future<UserCredential> signInWithEmail({
+    required String email,
+    required String password,
+  }) {
+    return _auth.signInWithEmailAndPassword(email: email, password: password);
+  }
+
+  Future<void> sendPasswordReset(String email) {
+    return _auth.sendPasswordResetEmail(email: email);
+  }
+
+  Future<void> signOut() => _auth.signOut();
+
+  Future<UserCredential?> signInWithGoogle() async {
+    final GoogleSignInAccount? gUser = await GoogleSignIn().signIn();
+    if (gUser == null) return null; // user cancelled
+    final gAuth = await gUser.authentication;
+    final cred = GoogleAuthProvider.credential(
+      accessToken: gAuth.accessToken,
+      idToken: gAuth.idToken,
+    );
+    return _auth.signInWithCredential(cred);
   }
 }
