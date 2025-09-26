@@ -102,19 +102,19 @@ flutter:
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
 
-/products/{productId}:
-title: string
-brand: string
-price: number
-images: array<string>
-condition: string
-size: string
-colour: string
-categoryPath: string   // e.g. "Women > Clothing > Jackets > Denim jackets"
-sellerId: string 
-sellerUsername: string
-sellerAvatarUrl: string?  // optional
-badges: array<string>
-likesCount: number
-likedBy: map<string,bool> // OR maintain a subcollection if you prefer
-uploadedAt: Timestamp
+#/products/{productId}:
+#title: string
+#brand: string
+#price: number
+#images: array<string>
+#condition: string
+#size: string
+#colour: string
+#categoryPath: string   // e.g. "Women > Clothing > Jackets > Denim jackets"
+#sellerId: string 
+#sellerUsername: string
+#sellerAvatarUrl: string?  // optional
+#badges: array<string>
+#likesCount: number
+#likedBy: map<string,bool> // OR maintain a subcollection if you prefer
+#uploadedAt: Timestamp
