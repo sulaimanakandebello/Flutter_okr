@@ -1,145 +1,3 @@
-/*
-// lib/models/product.dart (excerpt)
-import 'package:cloud_firestore/cloud_firestore.dart';
-
-class Product {
-  final String id;
-  final String title;
-  final String brand;
-  final double price;
-  final List<String> images;
-  final String condition;
-  final String size;
-  final String colour;
-  final String categoryPath;
-  final String description;
-  final String sellerId;
-  final String sellerUsername;
-  final String? sellerAvatarUrl;
-  final List<String> badges;
-  final int likes;
-  final bool likedByMe; // computed client-side
-  final DateTime uploadedAt;
-
-  Product(required String id, {
-    required this.id,
-    required this.title,
-    required this.brand,
-    required this.price,
-    required this.images,
-    required this.condition,
-    required this.size,
-    required this.colour,
-    required this.categoryPath,
-    required this.description,
-    required this.sellerId,
-    required this.sellerUsername,
-    this.sellerAvatarUrl,
-    this.badges = const [],
-    this.likes = 0,
-    this.likedByMe = false,
-    required this.uploadedAt,
-    required seller,
-  });
-
-  factory Product.fromFirestore(
-    DocumentSnapshot<Map<String, dynamic>> doc, {
-    required String? currentUserId,
-  }) {
-    final d = doc.data()!;
-    final likedBy = (d['likedBy'] as Map?)?.cast<String, dynamic>() ?? {};
-    return Product(
-      id: doc.id,
-      title: d['title'] ?? '',
-      brand: d['brand'] ?? '',
-      price: (d['price'] ?? 0).toDouble(),
-      images: (d['images'] as List? ?? []).cast<String>(),
-      condition: d['condition'] ?? '',
-      size: d['size'] ?? '',
-      colour: d['colour'] ?? '',
-      categoryPath: d['categoryPath'] ?? '',
-      description: d['description'] ?? '',
-      sellerId: d['sellerId'] ?? '',
-      sellerUsername: d['sellerUsername'] ?? '',
-      sellerAvatarUrl: d['sellerAvatarUrl'],
-      badges: (d['badges'] as List? ?? []).cast<String>(),
-      likes: (d['likesCount'] ?? 0) as int,
-      likedByMe:
-          currentUserId == null ? false : (likedBy[currentUserId] == true),
-      uploadedAt: (d['uploadedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
-    );
-  }
-
-  Map<String, dynamic> toMap() => {
-        'title': title,
-        'brand': brand,
-        'price': price,
-        'images': images,
-        'condition': condition,
-        'size': size,
-        'colour': colour,
-        'categoryPath': categoryPath,
-        'description': description,
-        'sellerId': sellerId,
-        'sellerUsername': sellerUsername,
-        'sellerAvatarUrl': sellerAvatarUrl,
-        'badges': badges,
-        'likesCount': likes,
-        'uploadedAt': Timestamp.fromDate(uploadedAt),
-      };
-}
-*/
-
-/*
-// lib/models/product.dart
-import 'seller.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-
-class Product {
-  final String id;
-  final String title;
-  final String brand;
-  final double price;
-  final List<String> images;
-  final String condition;
-  final String size;
-  final String colour;
-  final String categoryPath; // e.g. "Women > Clothing > Jeans"
-  final String description;
-
-  // Seller info (nested model)
-  final Seller seller; // <-- bring this back
-  final String sellerId; // useful for lookups (e.g., "u-<username>")
-  final String sellerUsername; // convenience copy
-
-  // Meta
-  final List<String> badges;
-  final int likes;
-  final bool likedByMe;
-  final DateTime uploadedAt;
-
-  const Product({
-    required this.id,
-    required this.title,
-    required this.brand,
-    required this.price,
-    required this.images,
-    required this.condition,
-    required this.size,
-    required this.colour,
-    required this.categoryPath,
-    required this.description,
-    required this.seller, // <-- required
-    required this.sellerId, // <-- required
-    required this.sellerUsername, // <-- required
-    this.badges = const [],
-    this.likes = 0,
-    this.likedByMe = false,
-    required this.uploadedAt,
-  });
-}
-*/
-
 // lib/models/product.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'seller.dart';
@@ -153,22 +11,23 @@ class Product {
   final String condition;
   final String size;
   final String colour;
-  final String categoryPath;
+  final String
+      categoryPath; // e.g. "Women > Clothing > Jackets > Denim jackets"
   final String description;
 
-  /// Embedded summary for quick display (can be minimal).
+  /// Embedded seller summary for quick display
   final Seller seller;
 
-  /// Redundant seller fields to make querying simpler.
+  /// Redundant fields to simplify queries
   final String sellerId;
   final String sellerUsername;
 
   final List<String> badges;
 
-  /// Denormalized likes count
+  /// Denormalized likes count (Firestore field: likesCount)
   final int likes;
 
-  /// Derived at runtime from Firestore's `likedBy[userId]`
+  /// Derived locally from Firestore map `likedBy[userId]`
   final bool likedByMe;
 
   final DateTime uploadedAt;
@@ -193,14 +52,13 @@ class Product {
     required this.uploadedAt,
   });
 
-  /// Build from Firestore snapshot.
+  /// Build from Firestore snapshot. `currentUserId` is used to compute `likedByMe`.
   static Product fromFirestore(
     DocumentSnapshot<Map<String, dynamic>> doc, {
     String? currentUserId,
   }) {
     final data = doc.data() ?? <String, dynamic>{};
 
-    // Lists (images, badges)
     final images = <String>[
       for (final v in (data['images'] as List? ?? const []))
         if (v is String) v,
@@ -210,37 +68,25 @@ class Product {
         if (v is String) v,
     ];
 
-    // Seller embedded map is optional; fall back to the redundant fields
-    final sellerMap = (data['seller'] as Map?)?.cast<String, dynamic>() ?? {};
-    final sellerUsername = (data['sellerUsername'] as String?) ??
-        (sellerMap['username'] as String?) ??
-        '';
-    final sellerRating = (sellerMap['rating'] as num?)?.toDouble() ??
-        (data['sellerRating'] as num?)?.toDouble() ??
-        0.0;
-    final sellerRatingCount = (sellerMap['ratingCount'] as num?)?.toInt() ??
-        (data['sellerRatingCount'] as num?)?.toInt() ??
-        0;
-    final sellerAvatarUrl = (sellerMap['avatarUrl'] as String?) ??
-        (data['sellerAvatarUrl'] as String?);
-
-    // Likes map and count
-    final likedBy = (data['likedBy'] as Map?)?.cast<String, dynamic>() ??
-        const <String, dynamic>{};
-    final likesCount = (data['likesCount'] as num?)?.toInt() ?? 0;
+    // Likes & likedByMe
+    final likedBy =
+        (data['likedBy'] as Map?)?.cast<String, dynamic>() ?? const {};
     final likedByMe =
         currentUserId == null ? false : (likedBy[currentUserId] == true);
+    final likes = (data['likesCount'] as num?)?.toInt() ?? 0;
 
-    // uploadedAt can be Timestamp or ISO string; default to now if missing.
-    DateTime uploadedAt;
-    final rawUploadedAt = data['uploadedAt'];
-    if (rawUploadedAt is Timestamp) {
-      uploadedAt = rawUploadedAt.toDate();
-    } else if (rawUploadedAt is String) {
-      uploadedAt = DateTime.tryParse(rawUploadedAt) ?? DateTime.now();
-    } else {
-      uploadedAt = DateTime.now();
-    }
+    // Seller (embedded) with fallbacks to flat fields if present
+    final s = (data['seller'] as Map?)?.cast<String, dynamic>() ?? {};
+    final sellerUsername =
+        (data['sellerUsername'] as String?) ?? (s['username'] as String?) ?? '';
+
+    // UploadedAt: handle Timestamp / String / missing
+    final uploadedAtRaw = data['uploadedAt'];
+    final uploadedAt = uploadedAtRaw is Timestamp
+        ? uploadedAtRaw.toDate()
+        : (uploadedAtRaw is String
+            ? DateTime.tryParse(uploadedAtRaw) ?? DateTime.now()
+            : DateTime.now());
 
     return Product(
       id: doc.id,
@@ -255,46 +101,49 @@ class Product {
       description: (data['description'] as String?) ?? '',
       seller: Seller(
         username: sellerUsername,
-        rating: sellerRating,
-        ratingCount: sellerRatingCount,
-        avatarUrl: sellerAvatarUrl,
+        rating: (s['rating'] as num?)?.toDouble() ??
+            (data['sellerRating'] as num?)?.toDouble() ??
+            0.0,
+        ratingCount: (s['ratingCount'] as num?)?.toInt() ??
+            (data['sellerRatingCount'] as num?)?.toInt() ??
+            0,
+        avatarUrl:
+            (s['avatarUrl'] as String?) ?? (data['sellerAvatarUrl'] as String?),
       ),
       sellerId: (data['sellerId'] as String?) ?? '',
       sellerUsername: sellerUsername,
       badges: badges,
-      likes: likesCount,
+      likes: likes,
       likedByMe: likedByMe,
       uploadedAt: uploadedAt,
     );
   }
 
-  /// Convert to a Firestore map. Note: `id` is not stored in the doc.
-  Map<String, dynamic> toMap() {
-    return {
-      'title': title,
-      'brand': brand,
-      'price': price,
-      'images': images,
-      'condition': condition,
-      'size': size,
-      'colour': colour,
-      'categoryPath': categoryPath,
-      'description': description,
-      'seller': {
-        'username': seller.username,
-        'rating': seller.rating,
-        'ratingCount': seller.ratingCount,
-        if (seller.avatarUrl != null) 'avatarUrl': seller.avatarUrl,
-      },
-      'sellerId': sellerId,
-      'sellerUsername': sellerUsername,
-      'badges': badges,
-      // likes/likedBy should be updated via transactions; initialize as needed:
-      'likesCount': likes,
-      'uploadedAt': Timestamp.fromDate(uploadedAt),
-    };
-  }
+  /// Convert to Firestore map. (We don't store `likedByMe` — it's derived.)
+  Map<String, dynamic> toMap() => {
+        'title': title,
+        'brand': brand,
+        'price': price,
+        'images': images,
+        'condition': condition,
+        'size': size,
+        'colour': colour,
+        'categoryPath': categoryPath,
+        'description': description,
+        'seller': {
+          'username': seller.username,
+          'rating': seller.rating,
+          'ratingCount': seller.ratingCount,
+          if (seller.avatarUrl != null) 'avatarUrl': seller.avatarUrl,
+        },
+        'sellerId': sellerId,
+        'sellerUsername': sellerUsername,
+        'badges': badges,
+        'likesCount': likes,
+        'uploadedAt': Timestamp.fromDate(uploadedAt),
+      };
 
+  /// Handy for optimistic UI updates (e.g., likes).
   Product copyWith({
     String? id,
     String? title,

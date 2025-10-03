@@ -1,8 +1,13 @@
+// lib/pages/product_page.dart
 import 'package:flutter/material.dart';
-import 'package:flutter_okr/models/product.dart';
-import 'package:flutter_okr/pages/make_offer_page.dart';
-import 'package:flutter_okr/pages/checkout_page.dart';
-import 'package:flutter_okr/models/seller.dart'; // <-- add this
+import 'package:provider/provider.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
+import '../state/app_state.dart';
+import '../models/product.dart';
+import '../models/seller.dart';
+import 'make_offer_page.dart';
+import 'checkout_page.dart';
 
 class ProductPage extends StatefulWidget {
   const ProductPage({
@@ -24,14 +29,10 @@ class _ProductPageState extends State<ProductPage> {
   final _pageCtrl = PageController();
   int _page = 0;
 
-  late int _likes;
-  bool _liked = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _likes = widget.product.likes;
-  }
+  /// Local “optimistic” override used when the backend stream doesn’t push
+  /// updates (e.g., Fake repo). When Firebase streams, incoming snapshots
+  /// will replace this UI automatically.
+  Product? _optimistic;
 
   @override
   void dispose() {
@@ -39,22 +40,43 @@ class _ProductPageState extends State<ProductPage> {
     super.dispose();
   }
 
-  void _toggleLike() {
+  Future<void> _toggleLike(Product current) async {
+    final user = FirebaseAuth.instance.currentUser;
+    final uid = user?.uid ?? 'dev-user'; // fallback for fake repo
+
+    // Optimistic UI update
+    final nextLiked = !current.likedByMe;
+    final nextLikes =
+        nextLiked ? (current.likes + 1) : (current.likes - 1).clamp(0, 1 << 31);
+
     setState(() {
-      _liked = !_liked;
-      _likes = (_likes + (_liked ? 1 : -1)).clamp(0, 1 << 31);
+      _optimistic = current.copyWith(likedByMe: nextLiked, likes: nextLikes);
     });
+
+    try {
+      await context.read<AppState>().toggleLike(current.id, userId: uid);
+      // If you’re on Firebase, a snapshot will arrive and override _optimistic.
+      // If you’re on the fake repo, we keep _optimistic so the UI stays updated.
+    } catch (_) {
+      // Rollback on failure
+      setState(() => _optimistic = null);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to update like.')),
+        );
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final p = widget.product;
-    final t = Theme.of(context).textTheme;
-    final cs = Theme.of(context).colorScheme;
+    final authUid = FirebaseAuth.instance.currentUser?.uid;
 
-    // Fallback demo lists if none are provided in the constructor
-    final others = widget.sellersOtherItems ?? _demoProductsForSeller(p);
-    final similar = widget.similarItems ?? _demoSimilarProducts(p);
+    // Fallback demo lists if none were injected
+    final demoOthers =
+        widget.sellersOtherItems ?? _demoProductsForSeller(widget.product);
+    final demoSimilar =
+        widget.similarItems ?? _demoSimilarProducts(widget.product);
 
     return Scaffold(
       extendBodyBehindAppBar: true,
@@ -63,391 +85,412 @@ class _ProductPageState extends State<ProductPage> {
         foregroundColor: Colors.white,
         elevation: 0,
       ),
-      body: CustomScrollView(
-        slivers: [
-          // ---------- Image carousel ----------
-          SliverToBoxAdapter(
-            child: AspectRatio(
-              aspectRatio: 1,
-              child: Stack(
-                children: [
-                  PageView.builder(
-                    controller: _pageCtrl,
-                    itemCount: p.images.isEmpty ? 1 : p.images.length,
-                    onPageChanged: (i) => setState(() => _page = i),
-                    itemBuilder: (_, i) {
-                      final url = p.images.isEmpty ? null : p.images[i];
-                      return url == null
-                          ? const ColoredBox(color: Color(0xFFEFEFEF))
-                          : Image.network(
-                              url,
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) =>
-                                  const ColoredBox(color: Color(0xFFEFEFEF)),
-                            );
-                    },
-                  ),
-                  // dots
-                  Positioned(
-                    bottom: 14,
-                    left: 0,
-                    right: 0,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: List.generate(
-                        (p.images.isEmpty ? 1 : p.images.length),
-                        (i) => AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          width: 8,
-                          height: 8,
-                          margin: const EdgeInsets.symmetric(horizontal: 3),
-                          decoration: BoxDecoration(
-                            color: _page == i
-                                ? Colors.white
-                                : Colors.white.withOpacity(.5),
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  // likes bubble
-                  Positioned(
-                    right: 12,
-                    bottom: 12,
-                    child: Material(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(999),
-                      elevation: 4,
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(999),
-                        onTap: _toggleLike,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 8,
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                _liked ? Icons.favorite : Icons.favorite_border,
-                                color: _liked ? Colors.red : Colors.black,
-                                size: 20,
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                '$_likes',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+      body: StreamBuilder<Product>(
+        stream: context
+            .read<AppState>()
+            .watchProduct(widget.product.id, currentUserId: authUid),
+        initialData: widget.product,
+        builder: (context, snap) {
+          // Use streamed data when available; otherwise fallback to initial;
+          // then apply optimistic override if we have one.
+          Product effective = (snap.data ?? widget.product);
+          if (_optimistic != null && _optimistic!.id == effective.id) {
+            effective = _optimistic!;
+          }
 
-          // ---------- Seller row ----------
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-              child: Row(
-                children: [
-                  _SellerAvatar(
-                      username: p.seller.username, url: p.seller.avatarUrl),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          p.seller.username,
-                          style: t.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Row(
-                          children: [
-                            ...List.generate(
-                              5,
-                              (i) => Icon(
-                                i < p.seller.rating.round()
-                                    ? Icons.star
-                                    : Icons.star_border,
-                                size: 18,
-                                color: Colors.amber[700],
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              '(${p.seller.ratingCount})',
-                              style: const TextStyle(color: Colors.black54),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  OutlinedButton(
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                            content: Text('Open chat with seller (mock)')),
-                      );
-                    },
-                    style: OutlinedButton.styleFrom(
-                      shape: const StadiumBorder(),
-                      side: BorderSide(color: cs.outline),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 10),
-                    ),
-                    child: const Text('Ask seller'),
-                  ),
-                ],
-              ),
-            ),
-          ),
+          final t = Theme.of(context).textTheme;
+          final cs = Theme.of(context).colorScheme;
 
-          if (p.badges.isNotEmpty)
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: p.badges
-                      .map(
-                        (b) => Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: cs.primary.withOpacity(.12),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.local_shipping_outlined,
-                                  size: 18, color: cs.primary),
-                              const SizedBox(width: 6),
-                              Text(b,
-                                  style:
-                                      TextStyle(color: cs.primary, height: 1)),
-                            ],
-                          ),
-                        ),
-                      )
-                      .toList(),
-                ),
-              ),
-            ),
-
-          const SliverToBoxAdapter(child: Divider(height: 1)),
-
-          // ---------- Title / price / meta ----------
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(p.title,
-                      style:
-                          t.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
-                  const SizedBox(height: 6),
-                  Wrap(
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    spacing: 6,
+          return CustomScrollView(
+            slivers: [
+              // ---------- Images + Like ----------
+              SliverToBoxAdapter(
+                child: AspectRatio(
+                  aspectRatio: 1,
+                  child: Stack(
                     children: [
-                      Text(p.size,
-                          style: const TextStyle(color: Colors.black54)),
-                      const Text('·', style: TextStyle(color: Colors.black45)),
-                      Text(p.condition,
-                          style: const TextStyle(color: Colors.black54)),
-                      const Text('·', style: TextStyle(color: Colors.black45)),
-                      InkWell(
-                        onTap: () {},
-                        child: Text(
-                          p.brand,
-                          style: TextStyle(
-                            color: cs.primary,
-                            decoration: TextDecoration.underline,
-                            decorationColor: cs.primary,
+                      PageView.builder(
+                        controller: _pageCtrl,
+                        itemCount: effective.images.isEmpty
+                            ? 1
+                            : effective.images.length,
+                        onPageChanged: (i) => setState(() => _page = i),
+                        itemBuilder: (_, i) {
+                          final url = effective.images.isEmpty
+                              ? null
+                              : effective.images[i];
+                          return url == null
+                              ? const ColoredBox(color: Color(0xFFEFEFEF))
+                              : Image.network(
+                                  url,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) =>
+                                      const ColoredBox(
+                                          color: Color(0xFFEFEFEF)),
+                                );
+                        },
+                      ),
+                      Positioned(
+                        right: 12,
+                        bottom: 12,
+                        child: Material(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(999),
+                          elevation: 4,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(999),
+                            onTap: () => _toggleLike(effective),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 8),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    effective.likedByMe
+                                        ? Icons.favorite
+                                        : Icons.favorite_border,
+                                    color: effective.likedByMe
+                                        ? Colors.red
+                                        : Colors.black,
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    '${effective.likes}',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 10),
-                  Text(
-                    '€${p.price.toStringAsFixed(2)}',
-                    style: t.titleLarge?.copyWith(
-                      color: cs.primary,
-                      fontWeight: FontWeight.w700,
+                ),
+              ),
+
+              // ---------- Seller ----------
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+                  child: Row(
+                    children: [
+                      _SellerAvatar(
+                        username: effective.seller.username,
+                        url: effective.seller.avatarUrl,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              effective.seller.username,
+                              style: t.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Row(
+                              children: [
+                                ...List.generate(
+                                  5,
+                                  (i) => Icon(
+                                    i < effective.seller.rating.round()
+                                        ? Icons.star
+                                        : Icons.star_border,
+                                    size: 18,
+                                    color: Colors.amber[700],
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  '(${effective.seller.ratingCount})',
+                                  style: const TextStyle(color: Colors.black54),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      OutlinedButton(
+                        onPressed: () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Open chat with seller (mock)'),
+                            ),
+                          );
+                        },
+                        style: OutlinedButton.styleFrom(
+                          shape: const StadiumBorder(),
+                          side: BorderSide(color: cs.outline),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 10),
+                        ),
+                        child: const Text('Ask seller'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              if (effective.badges.isNotEmpty)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: effective.badges
+                          .map(
+                            (b) => Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: cs.primary.withOpacity(.12),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.local_shipping_outlined,
+                                      size: 18, color: cs.primary),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    b,
+                                    style: TextStyle(
+                                      color: cs.primary,
+                                      height: 1,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          )
+                          .toList(),
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Row(
+                ),
+
+              const SliverToBoxAdapter(child: Divider(height: 1)),
+
+              // ---------- Title / price / meta ----------
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '€${(p.price * 1.09).toStringAsFixed(2)} Includes Buyer Protection',
-                        style: TextStyle(
-                          color: Colors.teal[700],
-                          fontWeight: FontWeight.w600,
+                        effective.title,
+                        style: t.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
-                      const SizedBox(width: 4),
-                      Icon(Icons.verified_user,
-                          size: 18, color: Colors.teal[700]),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 6,
+                        children: [
+                          Text(
+                            effective.size,
+                            style: const TextStyle(color: Colors.black54),
+                          ),
+                          const Text('·',
+                              style: TextStyle(color: Colors.black45)),
+                          Text(
+                            effective.condition,
+                            style: const TextStyle(color: Colors.black54),
+                          ),
+                          const Text('·',
+                              style: TextStyle(color: Colors.black45)),
+                          InkWell(
+                            onTap: () {},
+                            child: Text(
+                              effective.brand,
+                              style: TextStyle(
+                                color: cs.primary,
+                                decoration: TextDecoration.underline,
+                                decorationColor: cs.primary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        '€${effective.price.toStringAsFixed(2)}',
+                        style: t.titleLarge?.copyWith(
+                          color: cs.primary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Text(
+                            '€${(effective.price * 1.09).toStringAsFixed(2)} Includes Buyer Protection',
+                            style: TextStyle(
+                              color: Colors.teal[700],
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Icon(Icons.verified_user,
+                              size: 18, color: Colors.teal[700]),
+                        ],
+                      ),
                     ],
                   ),
-                ],
-              ),
-            ),
-          ),
-
-          const SliverToBoxAdapter(child: Divider(height: 1)),
-
-          // ---------- Description ----------
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Description',
-                      style:
-                          t.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 8),
-                  Text(p.description),
-                  const SizedBox(height: 8),
-                  TextButton(
-                      onPressed: () {}, child: const Text('Tap to translate')),
-                ],
-              ),
-            ),
-          ),
-
-          // ---------- Facts ----------
-          SliverToBoxAdapter(
-            child: _FactsTable(
-              rows: [
-                _FactRow('Category', p.categoryPath.split(' > ').last),
-                _FactRow('Brand', p.brand),
-                _FactRow('Size', p.size),
-                _FactRow('Condition', p.condition),
-                _FactRow('Colour', p.colour),
-                _FactRow('Uploaded', _timeAgo(p.uploadedAt)),
-              ],
-            ),
-          ),
-
-          // ---------- Buyer protection ----------
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-              child: Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: cs.primary.withOpacity(.08),
-                  borderRadius: BorderRadius.circular(12),
                 ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(Icons.verified, color: cs.primary),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: RichText(
-                        text: TextSpan(
-                          style: Theme.of(context).textTheme.bodyMedium,
-                          children: const [
-                            TextSpan(
-                              text: 'Buyer Protection fee\n',
-                              style: TextStyle(fontWeight: FontWeight.w700),
-                            ),
-                            TextSpan(
-                              text:
-                                  'Our Buyer Protection is added for a fee to every purchase made with the "Buy now" button.',
-                            ),
-                          ],
-                        ),
+              ),
+
+              const SliverToBoxAdapter(child: Divider(height: 1)),
+
+              // ---------- Description ----------
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Description',
+                        style: t.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w600),
                       ),
-                    ),
+                      const SizedBox(height: 8),
+                      Text(effective.description),
+                      const SizedBox(height: 8),
+                      TextButton(
+                        onPressed: () {},
+                        child: const Text('Tap to translate'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              // ---------- Facts ----------
+              SliverToBoxAdapter(
+                child: _FactsTable(
+                  rows: [
+                    _FactRow(
+                        'Category', effective.categoryPath.split(' > ').last),
+                    _FactRow('Brand', effective.brand),
+                    _FactRow('Size', effective.size),
+                    _FactRow('Condition', effective.condition),
+                    _FactRow('Colour', effective.colour),
+                    _FactRow('Uploaded', _timeAgo(effective.uploadedAt)),
                   ],
                 ),
               ),
-            ),
-          ),
 
-          // ---------- Postage ----------
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 16, 12, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'Postage',
-                          style: TextStyle(
-                              fontWeight: FontWeight.w600, fontSize: 16),
-                        ),
-                      ),
-                      Text('From €2.79',
-                          style: TextStyle(color: Colors.black54)),
-                    ],
-                  ),
-                  SizedBox(height: 8),
-                  Text(
-                    'The right of withdrawal of Article L. 221-18 ...',
-                    style: TextStyle(color: Colors.black54),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          // ---------- Tabs (member’s items / similar) ----------
-          SliverToBoxAdapter(
-            child: DefaultTabController(
-              length: 2,
-              child: Column(
-                children: [
-                  const TabBar(
-                    labelColor: Colors.black,
-                    indicatorColor: Colors.teal,
-                    tabs: [
-                      Tab(text: "Member's items"),
-                      Tab(text: 'Similar items'),
-                    ],
-                  ),
-                  SizedBox(
-                    height: 640,
-                    child: TabBarView(
-                      physics: const NeverScrollableScrollPhysics(),
+              // ---------- Buyer protection ----------
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: cs.primary.withOpacity(.08),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _MemberItemsTab(products: others),
-                        _SimilarItemsTab(products: similar),
+                        Icon(Icons.verified, color: cs.primary),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: RichText(
+                            text: TextSpan(
+                              style: Theme.of(context).textTheme.bodyMedium,
+                              children: const [
+                                TextSpan(
+                                  text: 'Buyer Protection fee\n',
+                                  style: TextStyle(fontWeight: FontWeight.w700),
+                                ),
+                                TextSpan(
+                                  text:
+                                      'Our Buyer Protection is added for a fee to every purchase made with the "Buy now" button.',
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ),
-                ],
+                ),
               ),
-            ),
-          ),
 
-          const SliverToBoxAdapter(child: SizedBox(height: 100)),
-        ],
+              // ---------- Postage ----------
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(12, 16, 12, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Postage',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w600, fontSize: 16),
+                            ),
+                          ),
+                          Text('From €2.79',
+                              style: TextStyle(color: Colors.black54)),
+                        ],
+                      ),
+                      SizedBox(height: 8),
+                      Text(
+                        'The right of withdrawal of Article L. 221-18 ...',
+                        style: TextStyle(color: Colors.black54),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              // ---------- Tabs (member’s items / similar) ----------
+              SliverToBoxAdapter(
+                child: DefaultTabController(
+                  length: 2,
+                  child: Column(
+                    children: [
+                      const TabBar(
+                        labelColor: Colors.black,
+                        indicatorColor: Colors.teal,
+                        tabs: [
+                          Tab(text: "Member's items"),
+                          Tab(text: 'Similar items'),
+                        ],
+                      ),
+                      SizedBox(
+                        height: 640,
+                        child: TabBarView(
+                          physics: const NeverScrollableScrollPhysics(),
+                          children: [
+                            _MemberItemsTab(products: demoOthers),
+                            _SimilarItemsTab(products: demoSimilar),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              const SliverToBoxAdapter(child: SizedBox(height: 100)),
+            ],
+          );
+        },
       ),
 
       // ---------- Bottom actions ----------
@@ -470,14 +513,13 @@ class _ProductPageState extends State<ProductPage> {
               Expanded(
                 child: OutlinedButton(
                   onPressed: () {
+                    final p = _optimistic ?? widget.product;
                     Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (_) => MakeOfferPage(
-                          productTitle: widget.product.title,
-                          productPrice: widget.product.price,
-                          thumbUrl: widget.product.images.isNotEmpty
-                              ? widget.product.images.first
-                              : null,
+                          productTitle: p.title,
+                          productPrice: p.price,
+                          thumbUrl: p.images.isNotEmpty ? p.images.first : null,
                         ),
                       ),
                     );
@@ -485,7 +527,8 @@ class _ProductPageState extends State<ProductPage> {
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                   child: const Text('Make an offer'),
                 ),
@@ -494,9 +537,10 @@ class _ProductPageState extends State<ProductPage> {
               Expanded(
                 child: FilledButton(
                   onPressed: () {
+                    final p = _optimistic ?? widget.product;
                     Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (_) => CheckoutPage(product: widget.product),
+                        builder: (_) => CheckoutPage(product: p),
                       ),
                     );
                   },
@@ -549,7 +593,9 @@ class _FactsTable extends StatelessWidget {
             title: Text(
               r.label,
               style: const TextStyle(
-                  color: Colors.black54, fontWeight: FontWeight.w500),
+                color: Colors.black54,
+                fontWeight: FontWeight.w500,
+              ),
             ),
             trailing: Text(r.value),
           ),
@@ -572,6 +618,8 @@ class _MemberItemsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final t = Theme.of(context).textTheme;
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
       child: Column(
@@ -651,6 +699,7 @@ class _GridProductCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
+
     return Card(
       clipBehavior: Clip.antiAlias,
       elevation: 0,
@@ -673,15 +722,19 @@ class _GridProductCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(p.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: t.bodyMedium),
+                  Text(
+                    p.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: t.bodyMedium,
+                  ),
                   const SizedBox(height: 2),
                   Text(
                     '€${p.price.toStringAsFixed(2)}',
                     style: t.bodyMedium?.copyWith(
-                        color: Colors.black87, fontWeight: FontWeight.w600),
+                      color: Colors.black87,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ],
               ),
@@ -693,6 +746,8 @@ class _GridProductCard extends StatelessWidget {
   }
 }
 
+/* ========================= demo helpers ========================= */
+
 String _timeAgo(DateTime dt) {
   final diff = DateTime.now().difference(dt);
   if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
@@ -701,26 +756,13 @@ String _timeAgo(DateTime dt) {
   return d == 1 ? '1 day ago' : '$d days ago';
 }
 
-// simple demo lists for the two tabs (replace later with real data)
 List<Product> _demoProductsForSeller(Product base) => List.generate(6, (i) {
-      return Product(
+      return base.copyWith(
         id: 'seller-${i + 1}',
         title: '${base.brand} item ${i + 1}',
-        brand: base.brand,
         price: (base.price * (0.8 + i * 0.07)),
-        images: base.images,
-        condition: 'Good',
-        size: base.size,
-        colour: base.colour,
-        categoryPath: base.categoryPath,
-        description:
-            'Another ${base.brand} piece from ${base.seller.username}.',
-        seller: base.seller,
-        badges: const [],
         likes: 3 + i,
         uploadedAt: DateTime.now().subtract(Duration(hours: 2 * (i + 1))),
-        sellerId: '',
-        sellerUsername: '',
       );
     });
 
@@ -736,9 +778,11 @@ List<Product> _demoSimilarProducts(Product base) => List.generate(6, (i) {
         colour: base.colour,
         categoryPath: base.categoryPath,
         description: 'Similar item in ${base.categoryPath}.',
-        seller: Seller(username: 'otherUser', rating: 5, ratingCount: 200),
+        seller:
+            const Seller(username: 'otherUser', rating: 5, ratingCount: 200),
         badges: const [],
         likes: 1 + i,
+        likedByMe: false,
         uploadedAt: DateTime.now().subtract(Duration(hours: 3 * (i + 1))),
         sellerId: '',
         sellerUsername: '',

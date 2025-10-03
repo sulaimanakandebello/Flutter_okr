@@ -1,4 +1,3 @@
-/*
 // lib/state/app_state.dart
 import 'package:flutter/foundation.dart';
 import '../models/product.dart';
@@ -17,14 +16,13 @@ class AppState extends ChangeNotifier {
   bool get initialized => _initialized;
   List<Product> get feed => List.unmodifiable(_feed);
 
-  /// Safe initial load
+  /// Safe initial load (guards against re-entry)
   Future<void> loadInitial({String? category}) async {
-    if (_initialized || _loading) return; // <- guard re-entry
+    if (_initialized || _loading) return;
     _loading = true;
-    notifyListeners(); // ok: happens after first frame (see page initState below)
+    notifyListeners();
     try {
-      final items = await repo.fetchFeed(limit: 20, categoryFilter: category);
-      _feed = items;
+      _feed = await repo.fetchFeed(limit: 20, categoryFilter: category);
       _initialized = true;
     } finally {
       _loading = false;
@@ -44,89 +42,26 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> toggleLike(String productId,
-      {required String currentUserId}) async {
-    final updated = await repo.toggleLike(
-        productId: productId, userId: currentUserId);
+  /// Toggle like in the backend and update local feed item if present.
+  Future<void> toggleLike(String productId, {required String userId}) async {
+    await repo.toggleLike(productId: productId, userId: userId);
+
+    // Optimistically mirror the change in the in-memory feed if item is there.
     final i = _feed.indexWhere((p) => p.id == productId);
     if (i != -1) {
-      _feed = [..._feed]..[i] = updated;
-      notifyListeners();
-    }
-  }
-}
-*/
-
-// lib/state/app_state.dart
-import 'package:flutter/foundation.dart';
-import '../models/product.dart';
-import '../services/products_repository.dart';
-
-class AppState extends ChangeNotifier {
-  AppState({required this.repo});
-
-  final ProductsRepository repo;
-
-  bool _loading = false;
-  bool _initialized = false;
-  List<Product> _feed = [];
-
-  bool get loading => _loading;
-  bool get initialized => _initialized;
-  List<Product> get feed => List.unmodifiable(_feed);
-
-  /// Safe initial load
-  Future<void> loadInitial({String? category}) async {
-    if (_initialized || _loading) return; // guard re-entry
-    _loading = true;
-    notifyListeners(); // safe: call from a post-frame callback in UI
-    try {
-      _feed = await repo.fetchFeed(limit: 20, categoryFilter: category);
-      _initialized = true;
-    } finally {
-      _loading = false;
+      final p = _feed[i];
+      final nextLiked = !p.likedByMe;
+      final nextLikes =
+          nextLiked ? (p.likes + 1) : (p.likes - 1).clamp(0, 1 << 31);
+      _feed = [..._feed]..[i] =
+          p.copyWith(likedByMe: nextLiked, likes: nextLikes);
       notifyListeners();
     }
   }
 
-  Future<void> refreshFeed({String? category}) async {
-    if (_loading) return;
-    _loading = true;
-    notifyListeners();
-    try {
-      _feed = await repo.fetchFeed(limit: 20, categoryFilter: category);
-    } finally {
-      _loading = false;
-      notifyListeners();
-    }
-  }
-
-  /// Optimistic like toggle: update UI immediately, then confirm with repo.
-  Future<void> toggleLike(
-    String productId, {
-    required String currentUserId,
-  }) async {
-    final i = _feed.indexWhere((p) => p.id == productId);
-    if (i == -1) return;
-
-    final old = _feed[i];
-    final wasLiked = old.likedByMe;
-    final newLikes =
-        wasLiked ? (old.likes - 1).clamp(0, 1 << 31) : old.likes + 1;
-    final optimistic = old.copyWith(likedByMe: !wasLiked, likes: newLikes);
-
-    // Apply optimistic update
-    _feed = [..._feed]..[i] = optimistic;
-    notifyListeners();
-
-    try {
-      // Repo returns void; it just persists the change
-      await repo.toggleLike(productId: productId, userId: currentUserId);
-    } catch (e) {
-      // Revert on failure
-      _feed = [..._feed]..[i] = old;
-      notifyListeners();
-      rethrow;
-    }
+  /// 🔴 NEW: Stream a single product (Firebase repo emits live snapshots;
+  /// Fake repo can emit a one-shot value).
+  Stream<Product> watchProduct(String id, {String? currentUserId}) {
+    return repo.watchProduct(id, currentUserId: currentUserId);
   }
 }

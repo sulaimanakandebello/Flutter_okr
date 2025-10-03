@@ -1,9 +1,11 @@
+// lib/pages/home_page.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../state/app_state.dart';
 import '../models/product.dart';
-import 'product_page.dart'; // ProductPage should accept models/Product
+import 'product_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -31,7 +33,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    // Kick off initial load AFTER the first frame — safe to notify then.
+    // Kick off initial load AFTER first frame — safe to notify then
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _didKickOff) return;
       _didKickOff = true;
@@ -152,7 +154,7 @@ class _HomePageState extends State<HomePage> {
         ),
       ),
 
-      // Shipping banner
+      // Bottom info banner (not a nav bar)
       bottomSheet: _showShippingBanner
           ? SafeArea(
               child: Container(
@@ -173,8 +175,7 @@ class _HomePageState extends State<HomePage> {
                 child: Row(
                   children: [
                     const Expanded(
-                      child: Text('Shipping fees will be added at checkout'),
-                    ),
+                        child: Text('Shipping fees will be added at checkout')),
                     IconButton(
                       icon: const Icon(Icons.close),
                       onPressed: () =>
@@ -227,36 +228,46 @@ class _ItemCard extends StatelessWidget {
                           const ColoredBox(color: Color(0xFFEFEFEF)),
                     ),
                   ),
-                  // Likes bubble
+
+                  // Likes bubble — optimistic toggle via AppState
                   Positioned(
                     right: 8,
                     bottom: 8,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
+                    child: Material(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(999),
+                      elevation: 4,
+                      child: InkWell(
                         borderRadius: BorderRadius.circular(999),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(.12),
-                            blurRadius: 6,
-                            offset: const Offset(0, 2),
+                        onTap: () async {
+                          final user = FirebaseAuth.instance.currentUser;
+                          final uid =
+                              user?.uid ?? 'dev-user'; // fallback for fake repo
+                          await context
+                              .read<AppState>()
+                              .toggleLike(product.id, userId: uid);
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 6,
                           ),
-                        ],
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.favorite_border,
-                            size: 18,
-                            color: cs.primary,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                product.likedByMe
+                                    ? Icons.favorite
+                                    : Icons.favorite_border,
+                                size: 18,
+                                color:
+                                    product.likedByMe ? Colors.red : cs.primary,
+                              ),
+                              const SizedBox(width: 4),
+                              Text('${product.likes}', style: t.bodyMedium),
+                            ],
                           ),
-                          const SizedBox(width: 4),
-                          Text('${product.likes}', style: t.bodyMedium),
-                        ],
+                        ),
                       ),
                     ),
                   ),

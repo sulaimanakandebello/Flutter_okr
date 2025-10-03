@@ -2,35 +2,59 @@
 import 'dart:io';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path/path.dart' as p;
 
 class StorageService {
-  final _storage = FirebaseStorage.instance;
+  final FirebaseStorage _storage = FirebaseStorage.instance;
 
-  /// Upload photos to: /products/{uid}/uploads/{millis}_{index}.jpg
-  /// Returns public download URLs.
+  /// Upload product images to: products/{uid}/{folderId}/{uniqueFileName}
+  ///
+  /// `folderId` can be the final productId (if you have it), or a draft id.
   Future<List<String>> uploadProductImages({
     required String uid,
+    required String folderId,
     required List<XFile> files,
   }) async {
-    final List<String> urls = [];
-    final millis = DateTime.now().millisecondsSinceEpoch;
+    final urls = <String>[];
 
     for (var i = 0; i < files.length; i++) {
-      final f = files[i];
+      final x = files[i];
+      final file = File(x.path);
 
-      // Some platforms give us only a path; ensure File(..) exists.
-      final file = File(f.path);
-      final ref = _storage
-          .ref()
-          .child('products')
-          .child(uid)
-          .child('uploads')
-          .child('${millis}_$i.jpg');
+      // Keep the original extension if possible
+      final ext = p.extension(x.path).toLowerCase();
+      final uniqueName =
+          'img_${i}_${DateTime.now().millisecondsSinceEpoch}${ext.isEmpty ? ".jpg" : ext}';
 
-      final task = await ref.putFile(file);
-      final url = await task.ref.getDownloadURL();
+      final ref = _storage.ref('products/$uid/$folderId/$uniqueName');
+
+      final metadata = SettableMetadata(
+        contentType: _contentTypeFor(ext),
+        cacheControl: 'public,max-age=31536000',
+      );
+
+      // 1) Upload
+      final snap = await ref.putFile(file, metadata);
+
+      // 2) Only after upload finishes, ask for URL
+      final url = await snap.ref.getDownloadURL();
       urls.add(url);
     }
+
     return urls;
+  }
+
+  String _contentTypeFor(String ext) {
+    switch (ext) {
+      case '.jpg':
+      case '.jpeg':
+        return 'image/jpeg';
+      case '.png':
+        return 'image/png';
+      case '.heic':
+        return 'image/heic';
+      default:
+        return 'application/octet-stream';
+    }
   }
 }
